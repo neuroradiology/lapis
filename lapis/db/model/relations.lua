@@ -75,9 +75,10 @@ preload_homogeneous = function(sub_relations, model, objects, front, ...)
           error("missing relation: " .. tostring(key))
         end
         sub_relations = sub_relations or { }
-        sub_relations[val] = sub_relations[val] or { }
+        local _update_0 = val
+        sub_relations[_update_0] = sub_relations[_update_0] or { }
         local loaded_objects = sub_relations[val]
-        if r.has_many then
+        if r.has_many or r.fetch and r.many then
           for _index_0 = 1, #objects do
             local obj = objects[_index_0]
             local _list_0 = obj[key]
@@ -108,7 +109,12 @@ preload = function(objects, ...)
   local by_type = { }
   for _index_0 = 1, #objects do
     local object = objects[_index_0]
-    by_type[object.__class] = by_type[object.__class] or { }
+    local cls = object.__class
+    if not (cls) then
+      error("attempting to preload an object that doesn't have a class, are you sure it's a model?")
+    end
+    local _update_0 = cls
+    by_type[_update_0] = by_type[_update_0] or { }
     table.insert(by_type[object.__class], object)
   end
   local sub_relations
@@ -309,9 +315,24 @@ has_one = function(self, name, opts)
     end
     local model = assert_model(self.__class, source)
     local foreign_key = opts.key or tostring(self.__class:singular_name()) .. "_id"
-    local clause = {
-      [foreign_key] = self[opts.local_key or self.__class:primary_keys()]
-    }
+    local clause
+    if type(foreign_key) == "table" then
+      local out = { }
+      for k, v in pairs(foreign_key) do
+        local key, local_key
+        if type(k) == "number" then
+          key, local_key = v, v
+        else
+          key, local_key = k, v
+        end
+        out[key] = self[local_key] or self.__class.db.NULL
+      end
+      clause = out
+    else
+      clause = {
+        [foreign_key] = self[opts.local_key or self.__class:primary_keys()]
+      }
+    end
     do
       local where = opts.where
       if where then
@@ -329,9 +350,15 @@ has_one = function(self, name, opts)
   self.relation_preloaders[name] = function(self, objects, preload_opts)
     local model = assert_model(self.__class, source)
     local foreign_key = opts.key or tostring(self.__class:singular_name()) .. "_id"
-    local local_key = opts.local_key or self.__class:primary_keys()
+    local composite_key = type(foreign_key) == "table"
+    local local_key
+    if not (composite_key) then
+      local_key = opts.local_key or self.__class:primary_keys()
+    end
     preload_opts = preload_opts or { }
-    preload_opts.flip = true
+    if not (composite_key) then
+      preload_opts.flip = true
+    end
     preload_opts.for_relation = name
     preload_opts.as = name
     preload_opts.where = preload_opts.where or opts.where
@@ -348,9 +375,24 @@ has_many = function(self, name, opts)
   local build_query
   build_query = function(self)
     local foreign_key = opts.key or tostring(self.__class:singular_name()) .. "_id"
-    local clause = {
-      [foreign_key] = self[opts.local_key or self.__class:primary_keys()]
-    }
+    local clause
+    if type(foreign_key) == "table" then
+      local out = { }
+      for k, v in pairs(foreign_key) do
+        local key, local_key
+        if type(k) == "number" then
+          key, local_key = v, v
+        else
+          key, local_key = k, v
+        end
+        out[key] = self[local_key] or self.__class.db.NULL
+      end
+      clause = out
+    else
+      clause = {
+        [foreign_key] = self[opts.local_key or self.__class:primary_keys()]
+      }
+    end
     do
       local where = opts.where
       if where then
@@ -397,9 +439,15 @@ has_many = function(self, name, opts)
   self.relation_preloaders[name] = function(self, objects, preload_opts)
     local model = assert_model(self.__class, source)
     local foreign_key = opts.key or tostring(self.__class:singular_name()) .. "_id"
-    local local_key = opts.local_key or self.__class:primary_keys()
+    local composite_key = type(foreign_key) == "table"
+    local local_key
+    if not (composite_key) then
+      local_key = opts.local_key or self.__class:primary_keys()
+    end
     preload_opts = preload_opts or { }
-    preload_opts.flip = true
+    if not (composite_key) then
+      preload_opts.flip = true
+    end
     preload_opts.many = true
     preload_opts.for_relation = name
     preload_opts.as = name

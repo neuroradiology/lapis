@@ -64,8 +64,12 @@ for tag in *void_tags
 ------------------
 
 classnames = (t) ->
+  if type(t) == "string"
+    return t
+
   ccs = for k,v in pairs t
     if type(k) == "number"
+      continue if v == ""
       v
     else
       continue unless v
@@ -398,5 +402,5 @@ class Widget
     @_buffer.widget = old_widget
     nil
 
-{ :Widget, :Buffer, :html_writer, :render_html, :escape, :unescape, :classnames, :CONTENT_FOR_PREFIX }
+{ :Widget, :Buffer, :html_writer, :render_html, :escape, :unescape, :classnames, :element, :CONTENT_FOR_PREFIX }
 

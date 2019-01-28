@@ -21,6 +21,62 @@ do
   local _obj_0 = require("lapis.db.model.relations")
   add_relations, mark_loaded_relations = _obj_0.add_relations, _obj_0.mark_loaded_relations
 end
+local _all_same
+_all_same = function(array, val)
+  for _index_0 = 1, #array do
+    local item = array[_index_0]
+    if item ~= val then
+      return false
+    end
+  end
+  return true
+end
+local _get
+_get = function(t, front, ...)
+  if ... == nil then
+    return t[front]
+  else
+    do
+      local obj = t[front]
+      if obj then
+        return _get(obj, ...)
+      else
+        return nil
+      end
+    end
+  end
+end
+local _put
+_put = function(t, value, front, ...)
+  if ... == nil then
+    if front == nil then
+      return 
+    end
+    t[front] = value
+    return t
+  else
+    local obj = t[front]
+    if obj == nil then
+      obj = { }
+      t[front] = obj
+    end
+    return _put(obj, value, ...)
+  end
+end
+local _fields
+_fields = function(t, names, k, len)
+  if k == nil then
+    k = 1
+  end
+  if len == nil then
+    len = #names
+  end
+  if k == len then
+    return t[names[k]]
+  else
+    return t[names[k]], _fields(t, names, k + 1, len)
+  end
+end
 local Enum
 do
   local _class_0
@@ -376,65 +432,127 @@ do
     return unpack(self.db.select(query)).c
   end
   self.include_in = function(self, other_records, foreign_key, opts)
+    if not (next(other_records)) then
+      return 
+    end
     local fields = opts and opts.fields or "*"
     local flip = opts and opts.flip
     local many = opts and opts.many
     local value_fn = opts and opts.value
-    if not flip and type(self.primary_key) == "table" then
-      error(tostring(self:table_name()) .. " must have singular primary key for include_in")
-    end
-    local src_key
-    if flip then
-      src_key = opts.local_key or "id"
+    local source_key, dest_key
+    local name_from_table = false
+    if type(foreign_key) == "table" then
+      if flip then
+        error("flip can not be combined with table foreign key")
+      end
+      name_from_table = true
+      source_key = { }
+      dest_key = { }
+      for k, v in pairs(foreign_key) do
+        insert(source_key, v)
+        insert(dest_key, type(k) == "number" and v or k)
+      end
     else
-      src_key = foreign_key
+      if flip then
+        source_key = opts.local_key or "id"
+      else
+        source_key = foreign_key
+      end
+      if flip then
+        dest_key = foreign_key
+      else
+        if type(self.primary_key) == "table" then
+          error(tostring(self:table_name()) .. " must have singular primary key for include_in")
+        end
+        dest_key = self.primary_key
+      end
+    end
+    local composite_foreign_key
+    if type(source_key) == "table" then
+      if #source_key == 1 and #dest_key == 1 then
+        source_key = source_key[1]
+        dest_key = dest_key[1]
+        composite_foreign_key = false
+      else
+        composite_foreign_key = true
+      end
+    else
+      composite_foreign_key = false
     end
     local include_ids
-    do
-      local _accum_0 = { }
-      local _len_0 = 1
-      for _index_0 = 1, #other_records do
-        local _continue_0 = false
-        repeat
-          local record = other_records[_index_0]
-          do
-            local id = record[src_key]
-            if not (id) then
+    if composite_foreign_key then
+      do
+        local _accum_0 = { }
+        local _len_0 = 1
+        for _index_0 = 1, #other_records do
+          local _continue_0 = false
+          repeat
+            local record = other_records[_index_0]
+            local tuple
+            do
+              local _accum_1 = { }
+              local _len_1 = 1
+              for _index_1 = 1, #source_key do
+                local k = source_key[_index_1]
+                _accum_1[_len_1] = record[k] or self.db.NULL
+                _len_1 = _len_1 + 1
+              end
+              tuple = _accum_1
+            end
+            if _all_same(tuple, self.db.NULL) then
               _continue_0 = true
               break
             end
-            _accum_0[_len_0] = id
+            local _value_0 = self.db.list(tuple)
+            _accum_0[_len_0] = _value_0
+            _len_0 = _len_0 + 1
+            _continue_0 = true
+          until true
+          if not _continue_0 then
+            break
           end
-          _len_0 = _len_0 + 1
-          _continue_0 = true
-        until true
-        if not _continue_0 then
-          break
         end
+        include_ids = _accum_0
       end
-      include_ids = _accum_0
-    end
-    if next(include_ids) then
-      include_ids = uniquify(include_ids)
-      local flat_ids = concat((function()
+    else
+      do
         local _accum_0 = { }
         local _len_0 = 1
-        for _index_0 = 1, #include_ids do
-          local id = include_ids[_index_0]
-          _accum_0[_len_0] = self.db.escape_literal(id)
-          _len_0 = _len_0 + 1
+        for _index_0 = 1, #other_records do
+          local _continue_0 = false
+          repeat
+            local record = other_records[_index_0]
+            do
+              local id = record[source_key]
+              if not (id) then
+                _continue_0 = true
+                break
+              end
+              _accum_0[_len_0] = id
+            end
+            _len_0 = _len_0 + 1
+            _continue_0 = true
+          until true
+          if not _continue_0 then
+            break
+          end
         end
-        return _accum_0
-      end)(), ", ")
-      local find_by
-      if flip then
-        find_by = foreign_key
+        include_ids = _accum_0
+      end
+    end
+    if next(include_ids) then
+      if not (composite_foreign_key) then
+        include_ids = uniquify(include_ids)
+      end
+      local flat_ids = self.db.escape_literal(self.db.list(include_ids))
+      local find_by_fields
+      if composite_foreign_key then
+        find_by_fields = self.db.escape_identifier(self.db.list(dest_key))
       else
-        find_by = self.primary_key
+        find_by_fields = self.db.escape_identifier(dest_key)
       end
       local tbl_name = self.db.escape_identifier(self:table_name())
-      local find_by_escaped = self.db.escape_identifier(find_by)
-      local query = tostring(fields) .. " from " .. tostring(tbl_name) .. " where " .. tostring(find_by_escaped) .. " in (" .. tostring(flat_ids) .. ")"
+      local query = tostring(fields) .. " from " .. tostring(tbl_name) .. " where " .. tostring(find_by_fields) .. " in " .. tostring(flat_ids)
       if opts and opts.where and next(opts.where) then
         query = query .. (" and " .. self.db.encode_clause(opts.where))
       end
@@ -454,47 +572,65 @@ do
         local res = self.db.select(query)
         if res then
           local records = { }
-          if many then
-            for _index_0 = 1, #res do
-              local t = res[_index_0]
-              local t_key = t[find_by]
-              if records[t_key] == nil then
-                records[t_key] = { }
-              end
-              local row = self:load(t)
-              if value_fn then
-                row = value_fn(row)
-              end
-              insert(records[t_key], row)
+          for _index_0 = 1, #res do
+            local t = res[_index_0]
+            local row = self:load(t)
+            if value_fn then
+              row = value_fn(row)
             end
-          else
-            for _index_0 = 1, #res do
-              local t = res[_index_0]
-              local row = self:load(t)
-              if value_fn then
-                row = value_fn(row)
+            if many then
+              if composite_foreign_key then
+                local array = _get(records, _fields(t, dest_key))
+                if array then
+                  insert(array, row)
+                else
+                  _put(records, {
+                    row
+                  }, _fields(t, dest_key))
+                end
+              else
+                local t_key = t[dest_key]
+                if records[t_key] == nil then
+                  records[t_key] = { }
+                end
+                insert(records[t_key], row)
               end
-              records[t[find_by]] = row
+            else
+              if composite_foreign_key then
+                _put(records, row, _fields(t, dest_key))
+              else
+                records[t[dest_key]] = row
+              end
             end
           end
           local field_name
           if opts and opts.as then
             field_name = opts.as
-          elseif flip then
+          elseif flip or name_from_table then
             if many then
               field_name = self:table_name()
             else
               field_name = self:singular_name()
             end
-          else
+          elseif type(self.primary_key) == "string" then
             field_name = foreign_key:match("^(.*)_" .. tostring(escape_pattern(self.primary_key)) .. "$")
           end
           assert(field_name, "failed to infer field name, provide one with `as`")
-          for _index_0 = 1, #other_records do
-            local other = other_records[_index_0]
-            other[field_name] = records[other[src_key]]
-            if many and not other[field_name] then
-              other[field_name] = { }
+          if composite_foreign_key then
+            for _index_0 = 1, #other_records do
+              local other = other_records[_index_0]
+              other[field_name] = _get(records, _fields(other, source_key))
+              if many and not other[field_name] then
+                other[field_name] = { }
+              end
+            end
+          else
+            for _index_0 = 1, #other_records do
+              local other = other_records[_index_0]
+              other[field_name] = records[other[source_key]]
+              if many and not other[field_name] then
+                other[field_name] = { }
+              end
             end
           end
           do
@@ -562,6 +698,8 @@ do
       local result = unpack(self.db.select("* from " .. tostring(table_name) .. " where " .. tostring(cond) .. " limit 1"))
       if result then
         return self:load(result)
+      else
+        return nil
       end
     end
   end

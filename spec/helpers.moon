@@ -28,8 +28,20 @@ with_query_fn = (q, run, db=require "lapis.db.postgres") ->
     with run!
       db.set_raw_query old_query
 
-assert_queries = (expected, result) ->
-  assert #expected == #result, "number of expected queries does not match number received"
+assert_queries = (expected, result, opts) ->
+  if #expected != #result
+    error "number of expected queries (#{#expected}) does not match number received (#{#result})"
+
+  if opts and opts.sorted
+    e = [q for q in *expected]
+    r = [q for q in *result]
+
+    table.sort e
+    table.sort r
+
+    assert.same e, r
+    return
+
   for i, q in ipairs expected
     if type(q) == "table"
       assert.one_of result[i], q
@@ -45,10 +57,15 @@ stub_queries = ->
   mock_query = (pattern, result) ->
     query_mock[pattern] = result
 
+  show_queries = os.getenv("LAPIS_SHOW_QUERIES")
+
   local restore
   setup ->
     _G.ngx = { null: nil }
     restore = with_query_fn (q) ->
+      if show_queries
+        require("lapis.logging").query q
+
       table.insert queries, (q\gsub("%s+", " ")\gsub("[\n\t]", " "))
 
       -- try to find a mock

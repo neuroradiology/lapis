@@ -54,7 +54,7 @@ preload_homogeneous = (sub_relations, model, objects, front, ...) ->
         sub_relations[val] or= {}
         loaded_objects = sub_relations[val]
 
-        if r.has_many
+        if r.has_many or r.fetch and r.many
           for obj in *objects
             for fetched in *obj[key]
               table.insert loaded_objects, fetched
@@ -74,7 +74,11 @@ preload = (objects, ...) ->
   by_type = {}
 
   for object in *objects
-    by_type[object.__class] or= {}
+    cls = object.__class
+    unless cls
+      error "attempting to preload an object that doesn't have a class, are you sure it's a model?"
+
+    by_type[cls] or= {}
     table.insert by_type[object.__class], object
 
   local sub_relations
@@ -203,10 +207,21 @@ has_one = (name, opts) =>
     model = assert_model @@, source
 
     foreign_key = opts.key or "#{@@singular_name!}_id"
+    clause = if type(foreign_key) == "table"
+      out = {}
+      for k,v in pairs foreign_key
+        key, local_key = if type(k) == "number"
+          v, v
+        else
+          k,v
 
-    clause = {
-      [foreign_key]: @[opts.local_key or @@primary_keys!]
-    }
+        out[key] = @[local_key] or @@db.NULL
+
+      out
+    else
+      {
+        [foreign_key]: @[opts.local_key or @@primary_keys!]
+      }
 
     if where = opts.where
       for k,v in pairs where
@@ -219,14 +234,21 @@ has_one = (name, opts) =>
     model = assert_model @@, source
 
     foreign_key = opts.key or "#{@@singular_name!}_id"
-    local_key = opts.local_key or @@primary_keys!
+    composite_key = type(foreign_key) == "table"
+
+    local_key = unless composite_key
+      opts.local_key or @@primary_keys!
 
     preload_opts or= {}
-    preload_opts.flip = true
+
+    unless composite_key
+      preload_opts.flip = true
+
     preload_opts.for_relation = name
     preload_opts.as = name
     preload_opts.where or= opts.where
     preload_opts.local_key = local_key
+
     model\include_in objects, foreign_key, preload_opts
 
 has_many = (name, opts) =>
@@ -239,9 +261,22 @@ has_many = (name, opts) =>
   build_query = =>
     foreign_key = opts.key or "#{@@singular_name!}_id"
 
-    clause = {
-      [foreign_key]: @[opts.local_key or @@primary_keys!]
-    }
+    clause = if type(foreign_key) == "table"
+      out = {}
+      for k,v in pairs foreign_key
+        key, local_key = if type(k) == "number"
+          v, v
+        else
+          k,v
+
+        out[key] = @[local_key] or @@db.NULL
+
+      out
+    else
+      {
+        [foreign_key]: @[opts.local_key or @@primary_keys!]
+      }
+
 
     if where = opts.where
       for k,v in pairs where
@@ -278,14 +313,19 @@ has_many = (name, opts) =>
     model = assert_model @@, source
 
     foreign_key = opts.key or "#{@@singular_name!}_id"
-    local_key = opts.local_key or @@primary_keys!
+    composite_key = type(foreign_key) == "table"
+
+    local_key = unless composite_key
+      opts.local_key or @@primary_keys!
 
     preload_opts or= {}
-    preload_opts.flip = true
+
+    unless composite_key
+      preload_opts.flip = true
+
     preload_opts.many = true
     preload_opts.for_relation = name
     preload_opts.as = name
-
     preload_opts.local_key = local_key
 
     preload_opts.order or= opts.order

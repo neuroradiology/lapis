@@ -66,9 +66,9 @@ local BACKENDS = {
         end
       end
       local start_time
-      if ngx and config.measure_performance then
+      if config.measure_performance then
         do
-          local reused = pgmoon.sock:getreusedtimes()
+          local reused = ngx and pgmoon.sock:getreusedtimes()
           if reused then
             set_perf("pgmoon_conn", reused > 0 and "reuse" or "new")
           end
@@ -144,6 +144,22 @@ local escape_identifier
 escape_identifier = function(ident)
   if is_raw(ident) then
     return ident[1]
+  end
+  if is_list(ident) then
+    local escaped_items
+    do
+      local _accum_0 = { }
+      local _len_0 = 1
+      local _list_0 = ident[1]
+      for _index_0 = 1, #_list_0 do
+        local item = _list_0[_index_0]
+        _accum_0[_len_0] = escape_identifier(item)
+        _len_0 = _len_0 + 1
+      end
+      escaped_items = _accum_0
+    end
+    assert(escaped_items[1], "can't flatten empty list")
+    return "(" .. tostring(concat(escaped_items, ", ")) .. ")"
   end
   ident = tostring(ident)
   return '"' .. (ident:gsub('"', '""')) .. '"'

@@ -96,6 +96,11 @@ mock_request = function(app_cls, url, opts)
     Host = host,
     Cookie = prev_request.set_cookie
   }
+  if opts.cookies then
+    for k, v in pairs(opts.cookies) do
+      add_cookie(headers, k, v)
+    end
+  end
   if opts.post then
     headers["Content-type"] = "application/x-www-form-urlencoded"
   end
@@ -129,6 +134,12 @@ mock_request = function(app_cls, url, opts)
     end
     return accum
   end
+  local hex
+  hex = function(str)
+    return (str:gsub(".", function(c)
+      return string.format("%02x", string.byte(c))
+    end))
+  end
   stack.push({
     print = function(...)
       local args = flatten({
@@ -156,8 +167,8 @@ mock_request = function(app_cls, url, opts)
       return ngx.print("\n")
     end,
     md5 = function(str)
-      local crypto = require("crypto")
-      return crypto.digest("md5", str)
+      local digest = require("openssl.digest")
+      return hex((digest.new("md5")):final(str))
     end,
     header = out_headers,
     now = function()

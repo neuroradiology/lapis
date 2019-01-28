@@ -184,109 +184,20 @@ describe "lapis.db.model", ->
       }
 
 
-  it "should paginate", ->
+  it "creates paginator", ->
     mock_query "COUNT%(%*%)", {{ c: 127 }}
     mock_query "BLAH", {{ hello: "world"}}
 
     class Things extends Model
 
-    p = Things\paginated [[where group_id = ? order by name asc]], 123
 
-    p\get_all!
-    assert.same 127, p\total_items!
-    assert.same 13, p\num_pages!
-    assert.falsy p\has_items!
-
-    p\get_page 1
-    p\get_page 4
-
-    p2 = Things\paginated [[order by name asc]], 123, per_page: 25
-
-    p2\get_page 3
-
-    p3 = Things\paginated "", fields: "hello, world", per_page: 12
-    p3\get_page 2
-
-    p4 = Things\paginated fields: "hello, world", per_page: 12
-    p4\get_page 2
-
-    p5 = Things\paginated [[order by BLAH]]
-    iter = p5\each_page!
-    iter!
-    iter!
-
-    p6 = Things\paginated [[join whales on color = blue order by BLAH]]
-    p6\total_items!
-    p6\get_page 2
-
-    p7 = Things\paginated "where color = '?'"
-    p7\total_items!
-    p7\get_page 3
+    pager = Things\paginated "where color = ?", "blue", per_page: 99
+    pager\total_items!
+    pager\get_page 3
 
     assert_queries {
-      'SELECT * from "things" where group_id = 123 order by name asc'
-      'SELECT COUNT(*) AS c FROM "things" where group_id = 123 '
-      'SELECT 1 FROM "things" where group_id = 123 limit 1'
-      'SELECT * from "things" where group_id = 123 order by name asc LIMIT 10 OFFSET 0'
-      'SELECT * from "things" where group_id = 123 order by name asc LIMIT 10 OFFSET 30'
-      'SELECT * from "things" order by name asc LIMIT 25 OFFSET 50'
-      'SELECT hello, world from "things" LIMIT 12 OFFSET 12'
-      'SELECT hello, world from "things" LIMIT 12 OFFSET 12'
-      'SELECT * from "things" order by BLAH LIMIT 10 OFFSET 0'
-      'SELECT * from "things" order by BLAH LIMIT 10 OFFSET 10'
-      'SELECT COUNT(*) AS c FROM "things" join whales on color = blue '
-      'SELECT * from "things" join whales on color = blue order by BLAH LIMIT 10 OFFSET 10'
-      [[SELECT COUNT(*) AS c FROM "things" where color = '?']]
-      [[SELECT * from "things" where color = '?' LIMIT 10 OFFSET 20]]
-    }
-
-  it "should ordered paginate", ->
-    import OrderedPaginator from require "lapis.db.pagination"
-    class Things extends Model
-
-    pager = OrderedPaginator Things, "id", "where color = blue"
-    res, np = pager\get_page!
-
-    res, np = pager\get_page 123
-
-    assert_queries {
-      'SELECT * from "things" where color = blue order by "things"."id" ASC limit 10'
-      'SELECT * from "things" where "things"."id" > 123 and (color = blue) order by "things"."id" ASC limit 10'
-    }
-
-  it "should ordered paginate with multiple keys", ->
-    import OrderedPaginator from require "lapis.db.pagination"
-    class Things extends Model
-
-    mock_query "SELECT", { { id: 101, updated_at: 300 }, { id: 102, updated_at: 301 } }
-
-    pager = OrderedPaginator Things, {"id", "updated_at"}, "where color = blue"
-
-    res, next_id, next_updated_at = pager\get_page!
-
-    assert.same 102, next_id
-    assert.same 301, next_updated_at
-
-    pager\after!
-    pager\before!
-
-    pager\after 100
-    pager\before 32
-
-    pager\after 100, 200
-    pager\before 32, 42
-
-    assert_queries {
-      'SELECT * from "things" where color = blue order by "things"."id" ASC, "things"."updated_at" ASC limit 10'
-
-      'SELECT * from "things" where color = blue order by "things"."id" ASC, "things"."updated_at" ASC limit 10'
-      'SELECT * from "things" where color = blue order by "things"."id" DESC, "things"."updated_at" DESC limit 10'
-
-      'SELECT * from "things" where "things"."id" > 100 and (color = blue) order by "things"."id" ASC, "things"."updated_at" ASC limit 10'
-      'SELECT * from "things" where "things"."id" < 32 and (color = blue) order by "things"."id" DESC, "things"."updated_at" DESC limit 10'
-
-      'SELECT * from "things" where ("things"."id", "things"."updated_at") > (100, 200) and (color = blue) order by "things"."id" ASC, "things"."updated_at" ASC limit 10'
-      'SELECT * from "things" where ("things"."id", "things"."updated_at") < (32, 42) and (color = blue) order by "things"."id" DESC, "things"."updated_at" DESC limit 10'
+      [[SELECT COUNT(*) AS c FROM "things" where color = 'blue']]
+      [[SELECT * from "things" where color = 'blue' LIMIT 99 OFFSET 198]]
     }
 
 
@@ -525,7 +436,22 @@ describe "lapis.db.model", ->
       things = [Things\load { id: i, other_id: (i + 7) * 2, thing_id: 100 + i } for i=1,5]
 
     it "with no options", ->
+      thing_items = {
+        { id: 101, name: "leaf" }
+        { id: 103, name: "loaf" }
+        { id: 104, name: "laugh" }
+      }
+
+      mock_query "SELECT", thing_items
+
       ThingItems\include_in things, "thing_id"
+
+      -- TODO: this naming isn't right, shouldn't it be called `thing_item`
+      assert.same thing_items[1], things[1].thing
+      assert.same nil, things[2].thing
+      assert.same thing_items[2], things[3].thing
+      assert.same thing_items[3], things[4].thing
+      assert.same nil, things[5].thing
 
       assert_queries {
         [[SELECT * from "thing_items" where "id" in (101, 102, 103, 104, 105)]]
@@ -634,6 +560,132 @@ describe "lapis.db.model", ->
       }, things[1].thing_items
 
       assert.same {}, things[2].thing_items
+
+  describe "include_in with composite keys", ->
+    local Things, ThingItems, things
+
+    before_each ->
+      class Things extends Model
+      class ThingItems extends Model
+      things = for i=1,5
+        Things\load {
+          id: i
+          alpha_id: 100 + math.floor i / 2
+          beta_id: 200 + i
+        }
+
+    it "with simple keys", ->
+      mock_query "SELECT", {
+        { id: 1, alpha_id: 101, beta_id: 202 }
+        { id: 2, alpha_id: 101, beta_id: 203 }
+        { id: 3, alpha_id: 102, beta_id: 204 }
+        { id: 4, alpha_id: 100, beta_id: 201 }
+      }
+
+      ThingItems\include_in things, {
+        "alpha_id", "beta_id"
+      }
+
+      assert_queries {
+        [[SELECT * from "thing_items" where ("alpha_id", "beta_id") in ((100, 201), (101, 202), (101, 203), (102, 204), (102, 205))]]
+      }
+
+      assert.same {
+        id: 1
+        alpha_id: 100
+        beta_id: 201
+        thing_item: {
+          id: 4, alpha_id: 100, beta_id: 201
+        }
+      }, things[1]
+
+      assert.same {
+        id: 2
+        alpha_id: 101
+        beta_id: 202
+        thing_item: {
+          id: 1, alpha_id: 101, beta_id: 202
+        }
+      }, things[2]
+
+      assert.same {
+        id: 3
+        alpha_id: 101
+        beta_id: 203
+        thing_item: {
+          id: 2, alpha_id: 101, beta_id: 203
+        }
+      }, things[3]
+
+      assert.same {
+        id: 4
+        alpha_id: 102
+        beta_id: 204
+        thing_item: {
+          id: 3, alpha_id: 102, beta_id: 204
+        }
+      }, things[4]
+
+      assert.same {
+        id: 5
+        alpha_id: 102
+        beta_id: 205
+      }, things[5]
+
+    it "with mapped keys", ->
+      thing_items = {
+        { id: 1, aid: 101, bid: 202 }
+        { id: 2, aid: 101, bid: 203 }
+        { id: 3, aid: 102, bid: 204 }
+        { id: 4, aid: 100, bid: 201 }
+      }
+
+      mock_query "SELECT", thing_items
+
+      ThingItems\include_in things, {
+        aid: "alpha_id"
+        bid: "beta_id"
+      }
+
+      assert_queries {
+        [[SELECT * from "thing_items" where ("aid", "bid") in ((100, 201), (101, 202), (101, 203), (102, 204), (102, 205))]]
+      }
+
+      assert.same thing_items[4], things[1].thing_item
+      assert.same thing_items[1], things[2].thing_item
+      assert.same thing_items[2], things[3].thing_item
+      assert.same thing_items[3], things[4].thing_item
+      assert.same nil, things[5].thing_item
+
+    it "with many", ->
+      thing_items = {
+        { id: 1, aid: 101, bid: 202 }
+        { id: 2, aid: 101, bid: 202 }
+        { id: 3, aid: 102, bid: 204 }
+      }
+
+      mock_query "SELECT", thing_items
+
+      ThingItems\include_in things, {
+        aid: "alpha_id"
+        bid: "beta_id"
+      }, many: true
+
+      assert_queries {
+        [[SELECT * from "thing_items" where ("aid", "bid") in ((100, 201), (101, 202), (101, 203), (102, 204), (102, 205))]]
+      }
+
+      assert.same {}, things[1].thing_items
+      assert.same {
+        { id: 1, aid: 101, bid: 202 }
+        { id: 2, aid: 101, bid: 202 }
+      }, things[2].thing_items
+
+      assert.same {}, things[3].thing_items
+      assert.same {
+        { id: 3, aid: 102, bid: 204 }
+      }, things[4].thing_items
+      assert.same {}, things[5].thing_items
 
 
   describe "constraints", ->

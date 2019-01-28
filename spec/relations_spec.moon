@@ -10,8 +10,8 @@ describe "lapis.db.model.relations", ->
   get_queries, mock_query = stub_queries!
 
   with old = assert_queries
-    assert_queries = (expected) ->
-      old expected, get_queries!
+    assert_queries = (expected, opts) ->
+      old expected, get_queries!, opts
 
   local models
 
@@ -203,6 +203,42 @@ describe "lapis.db.model.relations", ->
       'SELECT * from "user_data" where "owner_id" = 123 limit 1'
     }
 
+  it "makes has_one getter with composite key", ->
+    mock_query "SELECT", { { id: 101 } }
+
+    models.UserPageData = class extends Model
+
+    models.UserPage = class extends Model
+      @relations: {
+        {"data", has_one: "UserPageData", key: {
+          "user_id", "page_id"
+        }}
+      }
+
+    up = models.UserPage!
+    up.user_id = 99
+    up.page_id = 234
+
+    assert up\get_data!
+
+    up2 = models.UserPage!
+    up2.user_id = nil
+    up2.page_id = 'hello'
+
+    assert up2\get_data!
+
+    assert_queries {
+      {
+        'SELECT * from "user_page_data" where "user_id" = 99 AND "page_id" = 234 limit 1'
+        'SELECT * from "user_page_data" where "page_id" = 234 AND "user_id" = 99 limit 1'
+      }
+      {
+        [[SELECT * from "user_page_data" where "user_id" IS NULL AND "page_id" = 'hello' limit 1]]
+        [[SELECT * from "user_page_data" where "page_id" = 'hello' AND "user_id" IS NULL limit 1]]
+      }
+    }
+
+
   it "should make has_one getter key and local key", ->
     mock_query "SELECT", { { id: 101, thing_email: "leafo@leafo" } }
 
@@ -243,6 +279,33 @@ describe "lapis.db.model.relations", ->
       }
     }
 
+  it "makes has_one getter with composite key with custom local names", ->
+
+    mock_query "SELECT", { { id: 101 } }
+
+    models.UserPageData = class extends Model
+
+    models.UserPage = class extends Model
+      @relations: {
+        {"data", has_one: "UserPageData", key: {
+          user_id: "alpha_id"
+          page_id: "beta_id"
+        }}
+      }
+
+    up = models.UserPage!
+    up.alpha_id = 99
+    up.beta_id = 234
+
+    assert up\get_data!
+
+    assert_queries {
+      {
+        'SELECT * from "user_page_data" where "user_id" = 99 AND "page_id" = 234 limit 1'
+        'SELECT * from "user_page_data" where "page_id" = 234 AND "user_id" = 99 limit 1'
+      }
+    }
+
   it "should make has_many paginated getter", ->
     mock_query "SELECT", { { id: 101 } }
 
@@ -274,7 +337,7 @@ describe "lapis.db.model.relations", ->
     }
 
 
-  it "should make has_many getter ", ->
+  it "should make has_many getter", ->
     models.Posts = class extends Model
     models.Users = class extends Model
       @relations: {
@@ -301,6 +364,48 @@ describe "lapis.db.model.relations", ->
       'SELECT * from "posts" where "user_id" = 1234 order by id desc'
     }
 
+  it "should make has_many getter with composite key", ->
+    mock_query "SELECT", {
+      { id: 101, user_id: 99, page_id: 234 }
+      { id: 102, user_id: 99, page_id: 234 }
+    }
+
+    models.UserPageData = class extends Model
+
+    models.UserPage = class extends Model
+      @relations: {
+        {"data", has_many: "UserPageData", key: {
+          "user_id", "page_id"
+        }}
+      }
+
+    up = models.UserPage!
+    up.user_id = 99
+    up.page_id = 234
+
+    assert.same {
+      { id: 101, user_id: 99, page_id: 234 }
+      { id: 102, user_id: 99, page_id: 234 }
+    }, up\get_data!
+
+    up2 = models.UserPage!
+    up2.user_id = 99
+    up2.page_id = nil
+    assert up2\get_data!
+
+    assert_queries {
+      {
+        'SELECT * from "user_page_data" where "user_id" = 99 AND "page_id" = 234'
+        'SELECT * from "user_page_data" where "page_id" = 234 AND "user_id" = 99'
+      }
+      {
+        'SELECT * from "user_page_data" where "user_id" = 99 AND "page_id" IS NULL'
+        'SELECT * from "user_page_data" where "page_id" IS NULL AND "user_id" = 99'
+      }
+    }
+
+
+
   it "should create relations for inheritance", ->
     class Base extends Model
       @relations: {
@@ -322,6 +427,8 @@ describe "lapis.db.model.relations", ->
     before_each ->
       models.Foos = class Foos extends Model
       models.Bars = class Bars extends Model
+        @primary_key: "frog_index"
+
       models.Bazs = class Bazs extends Model
 
       Items = class Items extends Model
@@ -384,7 +491,7 @@ describe "lapis.db.model.relations", ->
 
       assert_queries {
         'SELECT * from "foos" where "id" = 33 limit 1'
-        'SELECT * from "bars" where "id" = 66 limit 1'
+        'SELECT * from "bars" where "frog_index" = 66 limit 1'
         'SELECT * from "bazs" where "id" = 99 limit 1'
       }
 
@@ -427,7 +534,7 @@ describe "lapis.db.model.relations", ->
 
       assert_queries {
         'SELECT * from "foos" where "id" in (1, 3, 4)'
-        'SELECT * from "bars" where "id" in (2)'
+        'SELECT * from "bars" where "frog_index" in (2)'
       }
 
     it "preloads with fields", ->
@@ -455,7 +562,7 @@ describe "lapis.db.model.relations", ->
 
       assert_queries {
         'SELECT * from "foos" where "id" in (111)'
-        'SELECT a, b from "bars" where "id" in (112)'
+        'SELECT a, b from "bars" where "frog_index" in (112)'
         'SELECT c, d from "bazs" where "id" in (113)'
       }
 
@@ -579,7 +686,7 @@ describe "lapis.db.model.relations", ->
 
       assert.same, before_count, #get_queries!
 
-    it "preloads single relation with opts", ->
+    it "preloads has_many with order and fields", ->
       models.Tags = class Tags extends Model
 
       class Posts extends Model
@@ -594,6 +701,60 @@ describe "lapis.db.model.relations", ->
       assert_queries {
         [[SELECT a,b from "tags" where "post_id" in (123) order by b asc]]
       }
+
+    it "preloads has_many with composite key", ->
+      mock_query "SELECT", {
+        { id: 101, user_id: 99, page_id: 234 }
+        { id: 102, user_id: 99, page_id: 234 }
+        { id: 103, user_id: 100, page_id: 234 }
+      }
+
+      models.UserPageData = class extends Model
+
+      models.UserPage = class UserPage extends Model
+        @relations: {
+          {"data", has_many: "UserPageData", key: {
+            "user_id", "page_id"
+          }}
+        }
+
+      user_pages = {
+        UserPage\load {
+          user_id: 99
+          page_id: 234
+        }
+
+        UserPage\load {
+          user_id: 100
+          page_id: 234
+        }
+
+        UserPage\load {
+          user_id: 100
+          page_id: 300
+        }
+      }
+
+      UserPage\preload_relation user_pages, "data"
+
+      assert_queries {
+        'SELECT * from "user_page_data" where ("user_id", "page_id") in ((99, 234), (100, 234), (100, 300))'
+      }
+
+      import LOADED_KEY from require "lapis.db.model.relations"
+      for user_page in *user_pages
+        assert.true user_page[LOADED_KEY].data
+
+      assert.same {
+        { id: 101, user_id: 99, page_id: 234 }
+        { id: 102, user_id: 99, page_id: 234 }
+      }, user_pages[1].data
+
+      assert.same {
+        { id: 103, user_id: 100, page_id: 234 }
+      }, user_pages[2].data
+
+      assert.same {}, user_pages[3].data
 
     it "preloads has_one with key and local_key", ->
       mock_query "SELECT", {
@@ -650,7 +811,59 @@ describe "lapis.db.model.relations", ->
         [[SELECT * from "files" where "thing_id" in (123) and "deleted" = FALSE]]
       }
 
-    it "preloads many relation with order and name", ->
+    it "preloads has_one with composite key", ->
+      import LOADED_KEY from require "lapis.db.model.relations"
+
+      mock_query "SELECT", {
+        {id: 1, user_id: 11, page_id: 101}
+      }
+
+      models.UserPageData = class extends Model
+
+      models.UserPage = class UserPage extends Model
+        @relations: {
+          {"data", has_one: "UserPageData", key: {
+            "user_id", "page_id"
+          }}
+        }
+
+      user_pages = {
+        UserPage\load {
+          user_id: 10
+          page_id: 100
+        }
+
+        UserPage\load {
+          user_id: 11
+          page_id: 101
+        }
+      }
+
+      UserPage\preload_relation user_pages, "data"
+
+      assert_queries {
+        [[SELECT * from "user_page_data" where ("user_id", "page_id") in ((10, 100), (11, 101))]]
+      }
+
+      assert.same {
+        {
+          user_id: 10
+          page_id: 100
+          [LOADED_KEY]: { data: true }
+        }
+
+        {
+          user_id: 11
+          page_id: 101
+          data: {
+            id: 1, user_id: 11, page_id: 101
+          }
+          [LOADED_KEY]: { data: true }
+        }
+      }, user_pages
+
+
+    it "preloads has_many with order and name", ->
       mock_query "SELECT", {
         { primary_thing_id: 123, name: "whaz" }
       }
@@ -795,4 +1008,129 @@ describe "lapis.db.model.relations", ->
         [[SELECT * from "item_applications" where "user_id" in (101)]]
       }
 
+  describe "generic preload", ->
+    local preload
+
+    before_each ->
+      import preload from require "lapis.db.model"
+
+      models.Users = class Users extends Model
+        @relations: {
+          {"tags", has_many: "Tags"}
+          {"user_data", has_one: "UserData"}
+          {"account", belongs_to: "Accounts"}
+        }
+
+        new: (@id) =>
+          assert @id, "missing id"
+
+      models.Tags = class Tags extends Model
+        @relations: {
+          {"owner", has_one: "Users"}
+        }
+
+      models.UserData = class UserData extends Model
+        @relations: {
+          {"images", has_many: "Images"}
+        }
+
+      models.Accounts = class Accounts extends Model
+      models.Images = class Images extends Model
+
+    it "preloads basic relations", ->
+      user = models.Users 10
+      user.account_id = 99
+
+      preload { user }, "tags", "user_data", "account"
+
+      assert_queries {
+        [[SELECT * from "tags" where "user_id" in (10)]]
+        [[SELECT * from "user_data" where "user_id" in (10)]]
+        [[SELECT * from "accounts" where "id" in (99)]]
+      }
+
+    it "preloads nested relations", ->
+      mock_query 'from "tags"', {
+        models.Tags\load {
+          id: 252
+          user_id: 10
+        }
+        models.Tags\load {
+          id: 311
+          user_id: 10
+        }
+      }
+
+      mock_query 'from "user_data"', {
+        models.UserData\load {
+          id: 32
+          user_id: 10
+        }
+      }
+
+      user = models.Users 10
+      user.account_id = 99
+
+      preload { user }, "account", {
+        tags: { "owner" }
+        user_data: {"images"}
+      }
+
+      assert_queries {
+        [[SELECT * from "accounts" where "id" in (99)]]
+        [[SELECT * from "images" where "user_data_id" in (32)]]
+        [[SELECT * from "tags" where "user_id" in (10)]]
+        [[SELECT * from "user_data" where "user_id" in (10)]]
+        [[SELECT * from "users" where "tag_id" in (252, 311)]]
+      }, sorted: true
+
+
+    it "preloads nested fetch relations", ->
+      models.Collections = class Collection extends Model
+        @relations: {
+          {"user",
+            fetch: => {}
+            preload: (collections) ->
+              for c in *collections
+                c.user = models.Users\load {
+                  id: 10
+                }
+              true
+          }
+
+          {"things",
+            many: true
+            fetch: => {}
+            preload: (collections) ->
+              for c in *collections
+                c.things = {
+                  models.Users\load {
+                    id: 11
+                  }
+
+                  models.Users\load {
+                    id: 12
+                  }
+                }
+
+              true
+
+          }
+        }
+
+        new: (@id) =>
+          assert @id, "missing id"
+
+      collection = models.Collections 44
+      preload { collection }, {
+        user: "tags"
+        things: { "user_data", "tags" }
+      }
+
+      assert_queries {
+        -- TODO: homogeneous preload should be able to merge these queries
+        [[SELECT * from "tags" where "user_id" in (10)]]
+        [[SELECT * from "tags" where "user_id" in (11, 12)]]
+        [[SELECT * from "user_data" where "user_id" in (11, 12)]]
+      }, sorted: true
 
